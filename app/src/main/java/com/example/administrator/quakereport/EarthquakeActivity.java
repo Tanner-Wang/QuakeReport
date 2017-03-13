@@ -2,25 +2,77 @@ package com.example.administrator.quakereport;
 
 import android.content.Intent;
 import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.v7.app.AppCompatActivity;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ListView;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.util.ArrayList;
+
+import static com.example.administrator.quakereport.QueryUtils.extractEarthquakes;
 
 public class EarthquakeActivity extends AppCompatActivity {
 
     public static final String LOG_TAG = EarthquakeActivity.class.getName();
+    public static final String SIMPLE_URL = "http://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&eventtype=earthquake&orderby=time&minmag=6&limit=10";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_earthquake);
 
+        MyAsyncTask myAsyncTask = new MyAsyncTask();
+        myAsyncTask.execute(SIMPLE_URL);
+
+
+    }
+
+ private class MyAsyncTask extends AsyncTask<String, Void, String> {
+     @Override
+     protected String doInBackground(String... urls) {
+         return extractEarthquakes(urls[0]);
+     }
+
+     @Override
+     protected void onPostExecute(String eJsonResponse) {
+         updateUi(eJsonResponse);
+     }
+ }
+
+    private void updateUi(String jsonResponse) {
+
+        ArrayList<Earthquake> earthquakes = new ArrayList<>();
+
+         try {
+
+            JSONObject root = new JSONObject(jsonResponse);
+
+            JSONArray featuresArray = root.getJSONArray("features");
+
+            for (int i = 0; i<featuresArray.length();i++) {
+
+                JSONObject earthquake = featuresArray.getJSONObject(i);
+                JSONObject properties = earthquake.getJSONObject("properties");
+
+                double mag = properties.getDouble("mag");
+                String place = properties.getString("place");
+                long time = properties.getLong("time");
+                String url = properties.getString("url");
+                earthquakes.add(new Earthquake(mag,place,time,url));
+
+            }
+
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
         //一下这部分是用来代替分割线包括的部分
-        ArrayList<Earthquake> earthquakes = QueryUtils.extractEarthquakes();
+//        ArrayList<Earthquake> earthquakes = extractEarthquakes();
 
         //--------------------------------------------------------------------------------------------
         // 创建Earthquake类的数组列表
@@ -51,9 +103,12 @@ public class EarthquakeActivity extends AppCompatActivity {
         // so the list can be populated in the user interface
         earthquakeListView.setAdapter(adapter);
 
-        earthquakeListView.setOnItemClickListener(new AdapterView.OnItemClickListener(){
+        earthquakeListView.setOnItemClickListener(new AdapterView.OnItemClickListener()
+
+        {
             @Override
-            public void onItemClick(AdapterView<?> adapterView, View view, int position, long l){
+            public void onItemClick(AdapterView<?> adapterView, View view, int position,
+                                    long l) {
                 Earthquake currentEarthquake = adapter.getItem(position);
                 Uri earthquakeUri = Uri.parse(currentEarthquake.getUrl());
                 Intent websiteIntent = new Intent(Intent.ACTION_VIEW, earthquakeUri);
