@@ -1,119 +1,129 @@
 package com.example.administrator.quakereport;
 
+import android.app.LoaderManager;
+import android.app.LoaderManager.LoaderCallbacks;
+import android.content.Context;
 import android.content.Intent;
+import android.content.Loader;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.net.Uri;
-import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.v7.app.AppCompatActivity;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ListView;
-
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
+import android.widget.TextView;
 
 import java.util.ArrayList;
+import java.util.List;
 
-import static com.example.administrator.quakereport.QueryUtils.extractEarthquakes;
+public class EarthquakeActivity extends AppCompatActivity
+        implements LoaderCallbacks<List<Earthquake>> {
 
-public class EarthquakeActivity extends AppCompatActivity {
+    private static final String LOG_TAG = EarthquakeActivity.class.getName();
 
-    public static final String LOG_TAG = EarthquakeActivity.class.getName();
-    public static final String SIMPLE_URL = "http://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&eventtype=earthquake&orderby=time&minmag=6&limit=10";
+    /** URL for earthquake data from the USGS dataset */
+    private static final String USGS_REQUEST_URL =
+            "http://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&orderby=time&minmag=6&limit=10";
+
+    /**
+     * Constant value for the earthquake loader ID. We can choose any integer.
+     * This really only comes into play if you're using multiple loaders.
+     */
+    private static final int EARTHQUAKE_LOADER_ID = 1;
+
+    /** Adapter for the list of earthquakes */
+    private EarthquakeAdapter mAdapter;
+
+    private TextView mEmptyStateView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_earthquake);
 
-        MyAsyncTask myAsyncTask = new MyAsyncTask();
-        myAsyncTask.execute(SIMPLE_URL);
-
-
-    }
-
- private class MyAsyncTask extends AsyncTask<String, Void, String> {
-     @Override
-     protected String doInBackground(String... urls) {
-         return extractEarthquakes(urls[0]);
-     }
-
-     @Override
-     protected void onPostExecute(String eJsonResponse) {
-         updateUi(eJsonResponse);
-     }
- }
-
-    private void updateUi(String jsonResponse) {
-
-        ArrayList<Earthquake> earthquakes = new ArrayList<>();
-
-         try {
-
-            JSONObject root = new JSONObject(jsonResponse);
-
-            JSONArray featuresArray = root.getJSONArray("features");
-
-            for (int i = 0; i<featuresArray.length();i++) {
-
-                JSONObject earthquake = featuresArray.getJSONObject(i);
-                JSONObject properties = earthquake.getJSONObject("properties");
-
-                double mag = properties.getDouble("mag");
-                String place = properties.getString("place");
-                long time = properties.getLong("time");
-                String url = properties.getString("url");
-                earthquakes.add(new Earthquake(mag,place,time,url));
-
-            }
-
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-        //一下这部分是用来代替分割线包括的部分
-//        ArrayList<Earthquake> earthquakes = extractEarthquakes();
-
-        //--------------------------------------------------------------------------------------------
-        // 创建Earthquake类的数组列表
-//        ArrayList<Earthquake> earthquakes = new ArrayList<Earthquake>();
-//        earthquakes.add(new Earthquake("7.2","San Francisco","Feb 2, 2016"));
-        //上面一行代码展开是这样子的：
-        //先实例化一个Earthquake对象，使用的是其构造函数来初始化其属性
-        //Earthquake e = new Earthquake("7.2","San Francisco","Feb 2, 2016");
-        //然后数组列表对象调用add()方法，传入Earthquake对象为参数，这样就把一个地震事件的信息传入到数组列表中
-        //earthquakes.add(e);
-//        earthquakes.add(new Earthquake("7.2","San Francisco","Feb 2, 2016"));
-//        earthquakes.add(new Earthquake("7.2","San Francisco","Feb 2, 2016"));
-//        earthquakes.add(new Earthquake("7.2","San Francisco","Feb 2, 2016"));
-//        earthquakes.add(new Earthquake("7.2","San Francisco","Feb 2, 2016"));
-//        earthquakes.add(new Earthquake("7.2","San Francisco","Feb 2, 2016"));
-//        earthquakes.add(new Earthquake("7.2","San Francisco","Feb 2, 2016"));
-
-        //-------------------------------------------------------------------------------------------
-
         // Find a reference to the {@link ListView} in the layout
         ListView earthquakeListView = (ListView) findViewById(R.id.list);
 
-        // Create a new {@link ArrayAdapter} of earthquakes
-        final EarthquakeAdapter adapter = new EarthquakeAdapter(
-                this, earthquakes);
+        mEmptyStateView = (TextView) findViewById(R.id.empty_view);
+        earthquakeListView.setEmptyView(mEmptyStateView);
+
+
+        // Create a new adapter that takes an empty list of earthquakes as input
+        mAdapter = new EarthquakeAdapter(this, new ArrayList<Earthquake>());
 
         // Set the adapter on the {@link ListView}
         // so the list can be populated in the user interface
-        earthquakeListView.setAdapter(adapter);
+        earthquakeListView.setAdapter(mAdapter);
 
-        earthquakeListView.setOnItemClickListener(new AdapterView.OnItemClickListener()
-
-        {
+        // Set an item click listener on the ListView, which sends an intent to a web browser
+        // to open a website with more information about the selected earthquake.
+        earthquakeListView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
-            public void onItemClick(AdapterView<?> adapterView, View view, int position,
-                                    long l) {
-                Earthquake currentEarthquake = adapter.getItem(position);
+            public void onItemClick(AdapterView<?> adapterView, View view, int position, long l) {
+                // Find the current earthquake that was clicked on
+                Earthquake currentEarthquake = mAdapter.getItem(position);
+
+                // Convert the String URL into a URI object (to pass into the Intent constructor)
                 Uri earthquakeUri = Uri.parse(currentEarthquake.getUrl());
+
+                // Create a new intent to view the earthquake URI
                 Intent websiteIntent = new Intent(Intent.ACTION_VIEW, earthquakeUri);
+
+                // Send the intent to launch a new activity
                 startActivity(websiteIntent);
             }
         });
+
+        ConnectivityManager cm =
+                (ConnectivityManager)this.getSystemService(Context.CONNECTIVITY_SERVICE);
+
+        NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
+        boolean isConnected = activeNetwork != null &&
+                activeNetwork.isConnectedOrConnecting();
+
+        if (isConnected) {
+
+            // Get a reference to the LoaderManager, in order to interact with loaders.
+            LoaderManager loaderManager = getLoaderManager();
+
+            // Initialize the loader. Pass in the int ID constant defined above and pass in null for
+            // the bundle. Pass in this activity for the LoaderCallbacks parameter (which is valid
+            // because this activity implements the LoaderCallbacks interface).
+            loaderManager.initLoader(EARTHQUAKE_LOADER_ID, null, this);
+        }
+        else{
+            View mLoading = findViewById(R.id.loading_spinner);
+            mLoading.setVisibility(View.GONE);
+            mEmptyStateView.setText(R.string.no_internet_connection);
+        }
+    }
+
+    @Override
+    public Loader<List<Earthquake>> onCreateLoader(int i, Bundle bundle) {
+        // Create a new loader for the given URL
+        return new EarthquakeLoader(this, USGS_REQUEST_URL);
+    }
+
+    @Override
+    public void onLoadFinished(Loader<List<Earthquake>> loader, List<Earthquake> earthquakes) {
+
+        View mLoading = findViewById(R.id.loading_spinner);
+        mLoading.setVisibility(View.GONE);
+        // Clear the adapter of previous earthquake data
+        mAdapter.clear();
+        mEmptyStateView.setText(R.string.empty_view_text);
+        // If there is a valid list of {@link Earthquake}s, then add them to the adapter's
+        // data set. This will trigger the ListView to update.
+        if (earthquakes != null && !earthquakes.isEmpty()) {
+            mAdapter.addAll(earthquakes);
+        }
+    }
+
+    @Override
+    public void onLoaderReset(Loader<List<Earthquake>> loader) {
+        // Loader reset, so we can clear out our existing data.
+        mAdapter.clear();
     }
 }
